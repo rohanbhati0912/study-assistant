@@ -402,7 +402,9 @@ elif st.session_state.step == 4:
                 
                 # Add to RAG
                 file_type = "pdf" if uploaded_file.name.endswith(".pdf") else "text"
-                success = st.session_state.handler.add_document_to_rag(temp_path, file_type)
+                success = st.session_state.handler.add_document_to_rag(
+                    temp_path, file_type, source_name=uploaded_file.name
+                )
                 
                 if success:
                     st.success(f"✅ Loaded: {uploaded_file.name}")

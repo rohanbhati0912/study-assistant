@@ -51,12 +51,13 @@ class RAGHelper:
             print(f"Error initializing vector store: {e}")
             self.vectorstore = None
     
-    def load_pdf(self, file_path: str) -> bool:
+    def load_pdf(self, file_path: str, source_name: Optional[str] = None) -> bool:
         """
         Load a PDF file and add it to the knowledge base.
         
         Args:
             file_path (str): Path to the PDF file
+            source_name (Optional[str]): Original document name for citations
             
         Returns:
             bool: True if successful, False otherwise
@@ -64,6 +65,13 @@ class RAGHelper:
         try:
             loader = PyPDFLoader(file_path)
             documents = loader.load()
+
+            source = os.path.basename(source_name or file_path)
+            for document in documents:
+                document.metadata = {
+                    **(document.metadata or {}),
+                    "source": source,
+                }
             
             # Split documents into chunks
             chunks = self.text_splitter.split_documents(documents)
@@ -77,12 +85,13 @@ class RAGHelper:
             print(f"Error loading PDF: {e}")
             return False
     
-    def load_text(self, file_path: str) -> bool:
+    def load_text(self, file_path: str, source_name: Optional[str] = None) -> bool:
         """
         Load a text file and add it to the knowledge base.
         
         Args:
             file_path (str): Path to the text file
+            source_name (Optional[str]): Original document name for citations
             
         Returns:
             bool: True if successful, False otherwise
@@ -90,6 +99,13 @@ class RAGHelper:
         try:
             loader = TextLoader(file_path)
             documents = loader.load()
+
+            source = os.path.basename(source_name or file_path)
+            for document in documents:
+                document.metadata = {
+                    **(document.metadata or {}),
+                    "source": source,
+                }
             
             # Split documents into chunks
             chunks = self.text_splitter.split_documents(documents)
@@ -154,6 +170,28 @@ class RAGHelper:
             return [doc.page_content for doc in docs]
         except Exception as e:
             print(f"Error querying knowledge base: {e}")
+            return []
+
+    def query_with_sources(self, question: str, k: int = 4) -> List[dict]:
+        """Retrieve relevant document chunks with their source metadata."""
+        try:
+            if not self.vectorstore:
+                return []
+
+            docs = self.vectorstore.similarity_search(question, k=k)
+
+            results = []
+            for doc in docs:
+                metadata = getattr(doc, "metadata", {}) or {}
+                results.append({
+                    "content": doc.page_content,
+                    "source": metadata.get("source"),
+                    "page": metadata.get("page"),
+                })
+
+            return results
+        except Exception as e:
+            print(f"Error querying knowledge base with sources: {e}")
             return []
     
     def query_with_scores(self, question: str, k: int = 4) -> List[tuple]:
