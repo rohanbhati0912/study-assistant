@@ -1,3 +1,6 @@
+import hashlib
+import tempfile
+
 import streamlit as st
 from dotenv import load_dotenv
 from agent_handler import StudyAssistantHandler
@@ -77,6 +80,8 @@ if "plan_generation_failed" not in st.session_state:
     st.session_state.plan_generation_failed = None
 if "uploaded_files_count" not in st.session_state:
     st.session_state.uploaded_files_count = 0
+if "processed_upload_hashes" not in st.session_state:
+    st.session_state.processed_upload_hashes = set()
 
 # Step 1: Choose Subject Category
 if st.session_state.step == 1:
@@ -387,32 +392,48 @@ elif st.session_state.step == 4:
                 st.metric("Documents Loaded", doc_count)
                 
                 if doc_count > 0 and st.button("🗑️ Clear All Documents"):
-                    st.session_state.handler.clear_documents()
-                    st.session_state.uploaded_files_count = 0
-                    st.success("Documents cleared!")
-                    st.rerun()
+                    cleared = st.session_state.handler.clear_documents()
+
+                    if cleared:
+                        st.session_state.uploaded_files_count = 0
+                        st.session_state.processed_upload_hashes.clear()
+                        st.success("Documents cleared!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to clear documents. Please try again.")
         
         # Process uploaded files
         if uploaded_files:
             for uploaded_file in uploaded_files:
-                # Save file temporarily
-                temp_path = f"./temp_{uploaded_file.name}"
-                with open(temp_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-                
-                # Add to RAG
-                file_type = "pdf" if uploaded_file.name.endswith(".pdf") else "text"
-                success = st.session_state.handler.add_document_to_rag(temp_path, file_type)
-                
-                if success:
-                    st.success(f"✅ Loaded: {uploaded_file.name}")
-                    st.session_state.uploaded_files_count += 1
-                else:
-                    st.error(f"❌ Failed to load: {uploaded_file.name}")
-                
-                # Clean up temp file
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
+                file_bytes = uploaded_file.getvalue()
+                file_hash = hashlib.sha256(file_bytes).hexdigest()
+
+                if file_hash in st.session_state.processed_upload_hashes:
+                    continue
+
+                temp_path = None
+                try:
+                    suffix = ".pdf" if uploaded_file.name.lower().endswith(".pdf") else ".txt"
+                    with tempfile.NamedTemporaryFile(
+                        mode="wb", suffix=suffix, delete=False
+                    ) as temp_file:
+                        temp_file.write(file_bytes)
+                        temp_path = temp_file.name
+
+                    file_type = "pdf" if suffix == ".pdf" else "text"
+                    success = st.session_state.handler.add_document_to_rag(
+                        temp_path, file_type
+                    )
+
+                    if success:
+                        st.session_state.processed_upload_hashes.add(file_hash)
+                        st.session_state.uploaded_files_count += 1
+                        st.success(f"✅ Loaded: {uploaded_file.name}")
+                    else:
+                        st.error(f"❌ Failed to load: {uploaded_file.name}")
+                finally:
+                    if temp_path and os.path.exists(temp_path):
+                        os.remove(temp_path)
         
         st.divider()
         

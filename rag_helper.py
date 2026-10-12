@@ -1,3 +1,4 @@
+import hashlib
 import os
 from typing import List, Optional
 from phi.knowledge.pdf import PDFUrlKnowledgeBase, PDFKnowledgeBase
@@ -31,6 +32,7 @@ class RAGHelper:
             length_function=len,
         )
         self.vectorstore = None
+        self._processed_hashes = set()
         self._initialize_vectorstore()
     
     def _initialize_vectorstore(self):
@@ -51,54 +53,54 @@ class RAGHelper:
             print(f"Error initializing vector store: {e}")
             self.vectorstore = None
     
+    def _get_file_hash(self, file_path: str) -> str:
+        """Return a SHA-256 hash of a file's contents."""
+        digest = hashlib.sha256()
+        with open(file_path, "rb") as file:
+            for chunk in iter(lambda: file.read(8192), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
     def load_pdf(self, file_path: str) -> bool:
-        """
-        Load a PDF file and add it to the knowledge base.
-        
-        Args:
-            file_path (str): Path to the PDF file
-            
-        Returns:
-            bool: True if successful, False otherwise
-        """
+        """Load a PDF document, skipping files already processed."""
         try:
-            loader = PyPDFLoader(file_path)
-            documents = loader.load()
-            
-            # Split documents into chunks
-            chunks = self.text_splitter.split_documents(documents)
-            
-            # Add to vector store
-            if self.vectorstore:
-                self.vectorstore.add_documents(chunks)
+            file_hash = self._get_file_hash(file_path)
+
+            if file_hash in self._processed_hashes:
+                print(f"Skipping duplicate PDF: {file_path}")
                 return True
-            return False
+
+            documents = PyPDFLoader(file_path).load()
+            chunks = self.text_splitter.split_documents(documents)
+
+            if not self.vectorstore:
+                return False
+
+            self.vectorstore.add_documents(chunks)
+            self._processed_hashes.add(file_hash)
+            return True
         except Exception as e:
             print(f"Error loading PDF: {e}")
             return False
     
     def load_text(self, file_path: str) -> bool:
-        """
-        Load a text file and add it to the knowledge base.
-        
-        Args:
-            file_path (str): Path to the text file
-            
-        Returns:
-            bool: True if successful, False otherwise
-        """
+        """Load a text document, skipping files already processed."""
         try:
-            loader = TextLoader(file_path)
-            documents = loader.load()
-            
-            # Split documents into chunks
-            chunks = self.text_splitter.split_documents(documents)
-            
-            # Add to vector store
-            if self.vectorstore:
-                self.vectorstore.add_documents(chunks)
+            file_hash = self._get_file_hash(file_path)
+
+            if file_hash in self._processed_hashes:
+                print(f"Skipping duplicate text file: {file_path}")
                 return True
-            return False
+
+            documents = TextLoader(file_path).load()
+            chunks = self.text_splitter.split_documents(documents)
+
+            if not self.vectorstore:
+                return False
+
+            self.vectorstore.add_documents(chunks)
+            self._processed_hashes.add(file_hash)
+            return True
         except Exception as e:
             print(f"Error loading text file: {e}")
             return False
@@ -192,6 +194,7 @@ class RAGHelper:
                 client = chromadb.PersistentClient(path=self.persist_directory)
                 client.delete_collection(name=self.collection_name)
                 self._initialize_vectorstore()
+                self._processed_hashes.clear()
                 return True
             return False
         except Exception as e:
