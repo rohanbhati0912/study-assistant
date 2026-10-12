@@ -254,7 +254,8 @@ prompts:
       1. Analyze the question and understand what the student needs
       2. Use the provided context to formulate an accurate answer
       3. If the context doesn't fully answer the question, acknowledge this
-      4. Provide specific references to the source material
+      4. Cite sources using only the source labels included with the retrieved passages;
+         do not invent filenames or page numbers
       5. Explain concepts clearly and thoroughly
       6. Suggest related topics the student might want to explore
       

@@ -290,7 +290,12 @@ class StudyAssistantHandler:
         """
         self.rag_helper = RAGHelper(collection_name=collection_name)
     
-    def add_document_to_rag(self, file_path: str, file_type: str = "pdf") -> bool:
+    def add_document_to_rag(
+        self,
+        file_path: str,
+        file_type: str = "pdf",
+        source_name: Optional[str] = None,
+    ) -> bool:
         """
         Add a document to the RAG knowledge base.
         
@@ -305,41 +310,55 @@ class StudyAssistantHandler:
             self.initialize_rag()
         
         if file_type == "pdf":
-            return self.rag_helper.load_pdf(file_path)
+            return self.rag_helper.load_pdf(file_path, source_name=source_name)
         elif file_type == "text":
-            return self.rag_helper.load_text(file_path)
+            return self.rag_helper.load_text(file_path, source_name=source_name)
         return False
     
     def query_documents(self, question: str, k: int = 4):
-        """
-        Query the uploaded documents using RAG.
-        
-        Args:
-            question (str): The question to ask
-            k (int): Number of relevant chunks to retrieve
-            
-        Returns:
-            str: Answer based on documents
-        """
+        """Query uploaded documents using RAG, including source citations."""
         if not self.rag_helper:
             return "No documents have been uploaded yet. Please upload study materials first."
-        
-        # Retrieve relevant context
-        relevant_docs = self.rag_helper.query(question, k=k)
-        
+
+        # Retrieve relevant chunks with source metadata.
+        relevant_docs = self.rag_helper.query_with_sources(question, k=k)
+
         if not relevant_docs:
-            return "I couldn't find relevant information in your uploaded documents. Please try rephrasing your question or upload more materials."
-        
-        # Combine context
-        context = "\n\n".join(relevant_docs)
-        
-        # Use RAG tutor agent
+            return (
+                "I couldn't find relevant information in your uploaded documents. "
+                "Please try rephrasing your question or upload more materials."
+            )
+
+        # Include source details in the context passed to the tutor.
+        context_parts = []
+        for index, doc in enumerate(relevant_docs, start=1):
+            source = doc.get("source")
+            page = doc.get("page")
+            citation_parts = []
+
+            if source:
+                citation_parts.append(f"Source: {source}")
+            if page is not None:
+                try:
+                    # PyPDFLoader uses zero-based page numbers.
+                    page_number = int(page) + 1
+                    citation_parts.append(f"Page: {page_number}")
+                except (TypeError, ValueError):
+                    citation_parts.append(f"Page: {page}")
+
+            citation = f"[{'; '.join(citation_parts)}]" if citation_parts else (
+                f"[Retrieved passage {index}; source metadata unavailable]"
+            )
+            context_parts.append(f"{citation}\n{doc.get('content', '')}")
+
+        context = "\n\n".join(context_parts)
+
         rag_prompt = self._format_prompt(
             self.config["prompts"]["rag_query"]["base"],
             question=question,
             context=context
         )
-        
+
         return self._run_agent(self.agents.rag_tutor_agent, rag_prompt)
     
     def get_document_count(self) -> int:
